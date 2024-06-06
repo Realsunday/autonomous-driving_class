@@ -1,213 +1,127 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 import rospy
-from sensor_msgs.msg import CompressedImage
-from cv_bridge import CvBridge
-import cv2
-import numpy as np
+from sensor_msgs.msg import LaserScan
+from geometry_msgs.msg import Twist
+from std_msgs.msg import Float32
+from std_msgs.msg import Bool
+import math
 
+class Obs_detect:
+    def __init__(self):
+        rospy.init_node("obs_detect_node")
 
-class Lane_detect:  
-    def __init__(self):  
-        rospy.init_node("homework_node")
-        # 구독
-        rospy.Subscriber("/camera/rgb/image_raw/compressed", CompressedImage, self.image_fn)  
-        self.bridge = CvBridge() 
-        self.img_msg = CompressedImage()  # 이미지 메시지 저장할 변수 초기화 
-        self.cam_flag = False
+        rospy.Subscriber("/scan", LaserScan, self.lidar_CB)
 
-        # 트랙바 초기값 설정 
-        self.GaussianBlur_Value = 1 #가우시안 블러 커널 사이즈 (홀수)
-        self.CannyLow_Value = 0 # 캐니 엣지 검출 최소 임곗값
-        self.CannyHigh_Value = 0 # 캐니 엣지 검출 최대 임곗값
+        self.pub_dist90_R = rospy.Publisher("/dist90R", Float32, queue_size=1)
+        self.pub_dist75_R = rospy.Publisher("/dist75R", Float32, queue_size=1)
+        self.pub_dist90_L = rospy.Publisher("/dist90L", Float32, queue_size=1)
+        self.pub_dist75_L = rospy.Publisher("/dist75L", Float32, queue_size=1)
+        self.pub_obs_R  = rospy.Publisher("/obsR", Bool, queue_size=1)
+        self.pub_obs_L = rospy.Publisher("/obsL", Bool, queue_size=1)
 
-        # 첫 번째 HSV 범위를 조정하는 트랙바의 초기값을 설정하는 변수 초기화
-        self.L_H_Value1 = 0
-        self.L_S_Value1 = 0
-        self.L_V_Value1 = 0
-        self.U_H_Value1 = 0
-        self.U_S_Value1 = 0
-        self.U_V_Value1 = 0
+        self.laser_msg = LaserScan()
+        self.rate = rospy.Rate(5)
+        self.laser_flag = False
+        self.degrees = []
+        self.degrees_flag = False
 
-        # 두 번째 첫 번째 HSV 범위를 조정하는 트랙바의 초기값을 설정하는 변수 초기화
-        self.L_H_Value2 = 0
-        self.L_S_Value2 = 0
-        self.L_V_Value2 = 0
-        self.U_H_Value2 = 0
-        self.U_S_Value2 = 0
-        self.U_V_Value2 = 0
-
-        self.rate = rospy.Rate(20) # lane detect 주기 설정 
-
-        self.create_trackbar_init()  # 트랙바 초기화
-    
-    def image_fn(self, msg): 
+    def lidar_CB(self, msg):
         if msg != -1:
-            self.img_msg = msg
-            self.cam_flag = True
+            self.laser_msg = msg
+            self.laser_flag = True
         else:
-            self.cam_flag = False
+            self.laser_flag = False
 
-    def create_trackbar_init(self):
-        self.hsv_window = 'HSV Settings'
-        self.preprocess_window = 'Preprocess Settings'
+    def calculate_degrees(self):
+        if self.degrees_flag == False:
+            for i, v in enumerate(self.laser_msg.ranges):
+                self.degrees.append((self.laser_msg.angle_min + self.laser_msg.angle_increment * i) * 180 / math.pi)
+            self.degrees_flag = True
 
-        cv2.namedWindow(self.hsv_window, cv2.WINDOW_NORMAL)
-        cv2.namedWindow(self.preprocess_window, cv2.WINDOW_NORMAL)
+    def detect_obs(self):
+        pub_dist90_R_list = []
+        pub_dist75_R_list = []
+        pub_dist90_L_list = []
+        pub_dist75_L_list = []
+        pub_obs_R_list = []
+        pub_obs_L_list = []
 
-        def hsv_track(value):
-            # White color trackbar
-            self.L_H_Value1 = cv2.getTrackbarPos("Low_H1", self.hsv_window)
-            self.L_S_Value1 = cv2.getTrackbarPos("Low_S1", self.hsv_window)
-            self.L_V_Value1 = cv2.getTrackbarPos("Low_V1", self.hsv_window)
-            self.U_H_Value1 = cv2.getTrackbarPos("Up_H1", self.hsv_window)
-            self.U_S_Value1 = cv2.getTrackbarPos("Up_S1", self.hsv_window)
-            self.U_V_Value1 = cv2.getTrackbarPos("Up_V1", self.hsv_window)
+        for i, n in enumerate(self.laser_msg.ranges):
+            x = n * math.cos(self.degrees[i] * math.pi / 180)
+            y = n * math.sin(self.degrees[i] * math.pi / 180)
 
-            # Yellow color trackbar
-            self.L_H_Value2 = cv2.getTrackbarPos("Low_H2", self.hsv_window)
-            self.L_S_Value2 = cv2.getTrackbarPos("Low_S2", self.hsv_window)
-            self.L_V_Value2 = cv2.getTrackbarPos("Low_V2", self.hsv_window)
-            self.U_H_Value2 = cv2.getTrackbarPos("Up_H2", self.hsv_window)
-            self.U_S_Value2 = cv2.getTrackbarPos("Up_S2", self.hsv_window)
-            self.U_V_Value2 = cv2.getTrackbarPos("Up_V2", self.hsv_window)
+            # 장애물 거리 감지 (x,y좌표에 대한)
+            if 0.15 < y < 0.45 and 0 < x < 0.5: # 왼쪽 장애물 감지
+                pub_obs_L_list.append(n)
+            if -0.45 < y < -0.15 and 0 < x < 0.5: # 오른쪽 장애물 감지
+                pub_obs_R_list.append(n)
+            # 특정 각도 거리 감지 
+            if 0 < n < 0.5 and -91 < self.degrees[i] < -89:
+                pub_dist90_R_list.append(n)
+            if 0 < n < 0.5 and -76 < self.degrees[i] < -75:
+                pub_dist75_R_list.append(n)
+            if 0 < n < 0.5 and 89 < self.degrees[i] < 91:
+                pub_dist90_L_list.append(n)
+            if 0 < n < 0.5 and 75 < self.degrees[i] < 76:
+                pub_dist75_L_list.append(n)
 
-        def blur_track(value):
-            self.GaussianBlur_Value = cv2.getTrackbarPos("GaussianBlur", self.preprocess_window)
-            if self.GaussianBlur_Value % 2 == 0:
-                self.GaussianBlur_Value += 1
-            cv2.setTrackbarPos("GaussianBlur", self.preprocess_window, self.GaussianBlur_Value)
+        return pub_dist90_R_list, pub_dist75_R_list, pub_dist90_L_list, pub_dist75_L_list, pub_obs_R_list, pub_obs_L_list
 
-        def canny_track(value):
-            self.CannyLow_Value = cv2.getTrackbarPos("CannyLow", self.preprocess_window)
-            self.CannyHigh_Value = cv2.getTrackbarPos("CannyHigh", self.preprocess_window)
+    def publish_distance_obs(self, dist90_R, dist75_R, dist90_L, dist75_L):
+        # 특정 각도에 대한 장애물 감지 publish 
+        # 오른쪽 90도, 75도에 대한 장애물 감지 
+        if dist90_R:
+            self.pub_dist90_R.publish(sum(dist90_R) / len(dist90_R))
+        else:
+            self.pub_dist90_R.publish(0.5)
+        
+        if dist75_R:
+            self.pub_dist75_R.publish(sum(dist75_R) / len(dist75_R))
+        else:
+            self.pub_dist75_R.publish(0.5)
+        # 왼쪽 90도, 75도에 대한 장애물 감지 
+        if dist90_L:
+            self.pub_dist90_L.publish(sum(dist90_L) / len(dist90_L))
+        else:
+            self.pub_dist90_L.publish(0.5)
+        
+        if dist75_L:
+            self.pub_dist75_L.publish(sum(dist75_L) / len(dist75_L))
+        else:
+            self.pub_dist75_L.publish(0.5)
 
-        # White color trackbars
-        cv2.createTrackbar("Low_H1", self.hsv_window, 75, 255, hsv_track)
-        cv2.createTrackbar("Low_S1", self.hsv_window, 0, 255, hsv_track)
-        cv2.createTrackbar("Low_V1", self.hsv_window, 118, 255, hsv_track)
-        cv2.createTrackbar("Up_H1", self.hsv_window, 255, 255, hsv_track)
-        cv2.createTrackbar("Up_S1", self.hsv_window, 255, 255, hsv_track)
-        cv2.createTrackbar("Up_V1", self.hsv_window, 255, 255, hsv_track)
+    def publish_right_obs(self, obs_R):
+        if len(obs_R) > 5:
+            self.pub_obs_R.publish(True)
+            print("obs_R: ", True)
+        else:
+            self.pub_obs_R.publish(False)
+            print("obs_R: ", False)
 
-        # Yellow color trackbars
-        cv2.createTrackbar("Low_H2", self.hsv_window, 0, 255, hsv_track)
-        cv2.createTrackbar("Low_S2", self.hsv_window, 29, 255, hsv_track)
-        cv2.createTrackbar("Low_V2", self.hsv_window, 102, 255, hsv_track)
-        cv2.createTrackbar("Up_H2", self.hsv_window, 55, 255, hsv_track)
-        cv2.createTrackbar("Up_S2", self.hsv_window, 255, 255, hsv_track)
-        cv2.createTrackbar("Up_V2", self.hsv_window, 255, 255, hsv_track)
-
-        # Gaussian Blur trackbar
-        cv2.createTrackbar("GaussianBlur", self.preprocess_window, 23, 51, blur_track)
-
-        # Canny Edge Detection trackbars
-        cv2.createTrackbar("CannyLow", self.preprocess_window, 68, 255, canny_track)
-        cv2.createTrackbar("CannyHigh", self.preprocess_window, 100, 255, canny_track)
-
-        hsv_track(0)
+    def publish_left_obs(self, obs_L):
+        if len(obs_L) > 5:
+            self.pub_obs_L.publish(True)
+            print("obs_L: ", True)
+        else:
+            self.pub_obs_L.publish(False)
+            print("obs_L: ", False)
     
 
-    def crop_img(self, cv_img, edges):
-        # 특정 이미지 추출 (전체 높이의 1/10 이미지 )
-        height, width = cv_img.shape[:2]
-        image_height = height // 10 
-        cropped_edges = edges[height - image_height:height, :]
-        return cropped_edges, height, width, image_height
+    def sense(self):
+        if len(self.laser_msg.ranges) > 0:
+            self.calculate_degrees()
+            dist90_R, dist75_R, dist90_L, dist75_L, obs_R, obs_L = self.detect_obs()
+            self.publish_distance_obs(dist90_R, dist75_R, dist90_L, dist75_L)
+            self.publish_right_obs(obs_R)
+            self.publish_left_obs(obs_L)
 
-    def run(self):   
-        if self.cam_flag:
-            img_msg = self.img_msg
-            cv_img = self.bridge.compressed_imgmsg_to_cv2(img_msg) # OpenCV 이미지로 변환
-            
-            cvt_hsv = cv2.cvtColor(cv_img, cv2.COLOR_BGR2HSV)
-
-            # White color mask
-            lower1 = np.array([self.L_H_Value1, self.L_S_Value1, self.L_V_Value1])
-            upper1 = np.array([self.U_H_Value1, self.U_S_Value1, self.U_V_Value1])
-            mask1 = cv2.inRange(cvt_hsv, lower1, upper1)
-            
-            # Yellow color mask
-            lower2 = np.array([self.L_H_Value2, self.L_S_Value2, self.L_V_Value2])
-            upper2 = np.array([self.U_H_Value2, self.U_S_Value2, self.U_V_Value2])
-            mask2 = cv2.inRange(cvt_hsv, lower2, upper2)
-
-            # Combine masks
-            mask = cv2.bitwise_or(mask1, mask2)
-            hsv_img = cv2.bitwise_and(cv_img, cv_img, mask=mask)
-
-            # 트랙바 값 가져오기
-            self.GaussianBlur_Value = cv2.getTrackbarPos('GaussianBlur', self.preprocess_window)
-            self.CannyLow_Value = cv2.getTrackbarPos('CannyLow', self.preprocess_window)
-            self.CannyHigh_Value = cv2.getTrackbarPos('CannyHigh', self.preprocess_window)
-
-            gray = cv2.cvtColor(hsv_img, cv2.COLOR_BGR2GRAY)
-            # 가우시안 블러 필터 적용
-            blurred_img = cv2.GaussianBlur(gray, (self.GaussianBlur_Value, self.GaussianBlur_Value), 0)
-            # Canny 엣지 검출
-            edges = cv2.Canny(blurred_img, self.CannyLow_Value, self.CannyHigh_Value)
-
-            # crop_img 메소드 호출
-            cropped_edges, height, width, image_height = self.crop_img(cv_img, edges)
-
-            # 이미지 초기화 
-            center_x = width // 2
-            threshold_count = 10  # 설정한 픽셀 최소값 임계치
-            line_center_left = 0  # 왼쪽 점 초기화
-            line_center_right = width  # 오른쪽 점 초기화
-            max_white_count_left = 0 # 왼쪽 흰색 픽셀의 최대 수
-            max_white_count_right = 0 # 오른쪽 흰색 픽셀의 최대 수
-
-            # 왼쪽 영역에서 검출
-            for x in range(0, center_x, 10):
-                white_count = cv2.countNonZero(cropped_edges[:, x:x+10])
-                if white_count > max_white_count_left:
-                    max_white_count_left = white_count
-                    line_center_left = x + 5
-
-            # 오른쪽 영역에서 검출
-            for x in range(center_x, width, 10):
-                white_count = cv2.countNonZero(cropped_edges[:, x:x+10])
-                if white_count > max_white_count_right:
-                    max_white_count_right = white_count
-                    line_center_right = x + 5
-
-            # 충분한 픽셀이 검출되지 않으면 영역의 끝으로 설정
-            if max_white_count_left < threshold_count:
-                line_center_left = 0  # 왼쪽 끝
-            if max_white_count_right < threshold_count:
-                line_center_right = width  # 오른쪽 끝
-
-            center_point = (line_center_left + line_center_right) // 2
-        
-            cv2.circle(cv_img, (line_center_left, height - image_height // 2), 10, (0, 0, 255), -1)  # Red circle at the left line center
-            cv2.circle(cv_img, (line_center_right, height - image_height // 2), 10, (255, 0, 0), -1)  # Blue circle at the right line center
-            cv2.circle(cropped_edges, (line_center_left, height - image_height // 2), 10, (255, 255, 255), -1)  # 원을 흰색으로 'lane_detection' 창에 그리기
-            cv2.circle(cropped_edges, (line_center_right, height - image_height // 2), 10, (255, 255, 255), -1)  # 원을 흰색으로 'lane_detection' 창에 그리기
-
-            # 중간점에 하얀색 점 그리기
-            cv2.circle(cv_img, (center_point, height - image_height // 2), 10, (255, 255, 255), -1)  # White circle at the middle point
-            cv2.circle(cropped_edges, (center_point, height - image_height // 2), 10, (255, 255, 255), -1)
-
-            ############## 이미지 출력을 위한 코드 ###################
-            cv2.imshow('Lane Detection', cropped_edges)
-            cv2.imshow('Original Frame', cv_img)
-            cv2.waitKey(1)
-            #######################################################
-            # run 함수가 일정한 주기로 실행
-            self.rate.sleep()
-            
-def main(): 
-    try:
-        image_processor = Lane_detect()
-        while not rospy.is_shutdown():
-            image_processor.run()
-
-    except KeyboardInterrupt:
-        print("Shutting down")
-        cv2.destroyAllWindows()
-
+def main():
+    obs_detect = Obs_detect()
+    while not rospy.is_shutdown():
+        obs_detect.sense()
+        obs_detect.rate.sleep()
 
 if __name__ == "__main__":
-    main()  
+    main()
