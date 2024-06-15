@@ -49,17 +49,17 @@ class Limo_wall_following:
                 for i, data in enumerate(self.msg.ranges)
             ]
             self.lidar_flag = True
+        if self.msg:
+            # 원하는 각도 내에서 원하는 거리값 이내 값 뽑기
+            for i, data in enumerate(self.msg.ranges):
+                if -90 < self.degrees[i] < 90 and 0 < self.msg.ranges[i] <= self.scan_dist:
+                    self.distance.append(data)
 
-        # 원하는 각도 내에서 원하는 거리값 이내 값 뽑기
-        for i, data in enumerate(self.msg.ranges):
-            if -90 < self.degrees[i] < 90 and 0 < self.msg.ranges[i] <= self.scan_dist:
-                self.distance.append(data)
-
-        # 전방 디택팅 각도
-        for i, data in enumerate(self.msg.ranges):
-            if -5 < self.degrees[i] < 5 and 0 < self.msg.ranges[i] < self.scan_dist:
-                self.obstacle_data_idx.append(i)
-                self.obstacle_data_range.append(data)
+            # 전방 디택팅 각도
+            for i, data in enumerate(self.msg.ranges):
+                if -5 < self.degrees[i] < 5 and 0 < self.msg.ranges[i] < self.scan_dist:
+                    self.obstacle_data_idx.append(i)
+                    self.obstacle_data_range.append(data)
 
     def judge_distance(self):
         if len(self.obstacle_data_range) == 0:
@@ -112,17 +112,6 @@ class Limo_wall_following:
         else:
             pass
 
-    def obstacle_motion(self):
-        print("obstacle_motion")
-        angle_incre = len(self.obstacle_data_idx) / 10 * pi / 180
-        obstacle_end_point = self.obstacle_data_idx[-1]
-        blank_space = len(self.obstacle_data_idx) - obstacle_end_point
-        turn_angle = angle_incre * blank_space / 2
-        if self.DIRECTION == LEFT:
-            self.angle = turn_angle
-        elif self.DIRECTION == RIGHT:
-            self.angle = -turn_angle
-        self.speed = -turn_angle / 10
 
     def angle_distance(self, degree):
         for i, data in enumerate(self.msg.ranges):
@@ -151,8 +140,6 @@ class Limo_wall_following:
                 self.angle = -(self.default_angle) * 2
         elif self.condition == "maintaining":
             self.maintain_direction()
-        elif self.condition == "obstacle":
-            self.obstacle_motion()
         self.obstacle_data_idx = []
         self.obstacle_data_range = []
         self.distance = []
