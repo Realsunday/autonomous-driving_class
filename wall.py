@@ -29,7 +29,7 @@ class Limo_wall_following:
         self.obstacle_data_idx = []
 
         self.DIRECTION = direction
-        self.default_speed = 0.15
+        self.default_speed = 0.3
         self.default_angle = 0.2
         self.scan_dist = 0.5
         self.offset = 0.2
