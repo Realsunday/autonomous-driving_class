@@ -18,6 +18,10 @@ class LimoWallFollowing:
         self.is_scan = False
         self.distance = []
 
+        self.condition = None
+        self.speed = 0
+        self.angle = 0
+
         self.DIRECTION = direction
         self.default_speed = 0.15
         self.default_angle = 0.2
@@ -25,18 +29,28 @@ class LimoWallFollowing:
         self.offset = 0.2
 
     def laser_callback(self, msg):
-        self.msg = msg
-        self.is_scan = True
+        # Ensure the incoming message is valid
+        if msg and msg.ranges:
+            self.msg = msg
+            self.is_scan = True
+        else:
+            rospy.logwarn("Invalid or empty scan data received.")
 
     def LiDAR_scan(self):
-        self.degrees = [
-            (self.msg.angle_min + (i * self.msg.angle_increment)) * 180 / pi
-            for i, data in enumerate(self.msg.ranges)
-        ]
-        self.distance = [
-            data for i, data in enumerate(self.msg.ranges)
-            if -90 < self.degrees[i] < 90 and 0 < data <= self.scan_dist
-        ]
+        if hasattr(self, 'msg'):
+            try:
+                self.degrees = [
+                    (self.msg.angle_min + (i * self.msg.angle_increment)) * 180 / pi
+                    for i, data in enumerate(self.msg.ranges)
+                ]
+                self.distance = [
+                    data for i, data in enumerate(self.msg.ranges)
+                    if -90 < self.degrees[i] < 90 and 0 < data <= self.scan_dist
+                ]
+            except Exception as e:
+                rospy.logerr(f"Error processing LIDAR data: {e}")
+        else:
+            rospy.logwarn("No scan message available for processing.")
 
     def judge_distance(self):
         if len(self.distance) > 0:
@@ -53,22 +67,28 @@ class LimoWallFollowing:
         angle1 = self.angle_distance(70 if self.DIRECTION == LEFT else -70)
         angle2 = self.angle_distance(80 if self.DIRECTION == LEFT else -80)
         if angle1 and angle2:
-            theta = acos(min(1, max(-1, angle2 / angle1)))
-            if 0 < theta < 0.35:
-                self.angle = theta - self.default_angle if self.DIRECTION == LEFT else -(theta - self.default_angle)
-            else:
-                self.angle = -(theta - self.default_angle) if self.DIRECTION == LEFT else (theta - self.default_angle)
-            self.speed = self.default_speed
+            try:
+                theta = acos(min(1, max(-1, angle2 / angle1)))
+                if 0 < theta < 0.35:
+                    self.angle = theta - self.default_angle if self.DIRECTION == LEFT else -(theta - self.default_angle)
+                else:
+                    self.angle = -(theta - self.default_angle) if self.DIRECTION == LEFT else (theta - self.default_angle)
+                self.speed = self.default_speed
+            except ValueError as e:
+                rospy.logerr(f"Error in angle calculation: {e}")
 
     def angle_distance(self, degree):
-        indices = [
-            i for i, degree_val in enumerate(self.degrees)
-            if degree < degree_val < degree + 1 and 0 < self.msg.ranges[i] < 0.6
-        ]
-        if indices:
-            return min(self.msg.ranges[i] for i in indices)
+        if hasattr(self, 'degrees'):
+            indices = [
+                i for i, degree_val in enumerate(self.degrees)
+                if degree < degree_val < degree + 1 and 0 < self.msg.ranges[i] < 0.6
+            ]
+            if indices:
+                return min(self.msg.ranges[i] for i in indices)
+        return None
 
     def move_control(self):
+        # Apply movement strategy based on the current condition
         if self.condition == "forward":
             self.speed = self.default_speed
             self.angle = 0
@@ -91,9 +111,4 @@ class LimoWallFollowing:
                 self.is_scan = False
 
 if __name__ == "__main__":
-    direction = LEFT  # Or RIGHT, depending on your setup
-    limo_wall_following = LimoWallFollowing(direction)
-    try:
-        limo_wall_following.main()
-    except rospy.ROSInterruptException:
-        pass
+    direction = LEFT  # Or RIGHT
