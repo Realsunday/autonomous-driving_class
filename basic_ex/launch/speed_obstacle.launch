@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- Start the speed node(주석역할) -->
+    <include file="$(find limo_base)/launch/limo_base.launch" />
+    <include file="$(find astra_camera)/launch/dabai_u3.launch" />
+    <include file="$(find ydlidar_ros)/launch/X2L.launch" />
+
+    <!--node pkg="basic_ex" type="lane_detect_2.py" name="lane_detect" output="screen"/-->
+    <node pkg="basic_ex" type="final_lane_detect_07.py" name="lane_detect" output="screen"/>
+    <node pkg="basic_ex" type="lidar_sub.py" name="lidar_obs" output="screen"/>
+    <node pkg="basic_ex" type="control_SR_55.py" name="speed_obstacle" output="screen"/>
+</launch>

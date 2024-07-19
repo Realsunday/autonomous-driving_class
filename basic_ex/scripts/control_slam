@@ -1,0 +1,87 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import rospy
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import OccupancyGrid, Odometry
+import tf
+import numpy as np
+
+class SLAMControl:
+    def __init__(self):
+        rospy.init_node("slam_control_node")
+
+        # 지도 데이터와 로봇 위치 데이터를 구독
+        rospy.Subscriber("/map", OccupancyGrid, self.map_callback)
+        rospy.Subscriber("/odom", Odometry, self.odom_callback)
+
+        self.pub = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
+        
+        self.cmd_msg = Twist()
+        self.map_data = None
+        self.robot_pose = None
+        self.rate = rospy.Rate(2)  # 루프 주기를 2Hz로 설정
+
+    def map_callback(self, data):
+        self.map_data = data
+
+    def odom_callback(self, data):
+        # 로봇의 현재 위치와 방향을 추출
+        self.robot_pose = data.pose.pose
+
+    def control(self):
+        if self.map_data is None or self.robot_pose is None:
+            return
+
+        # 현재 로봇 위치
+        robot_x = self.robot_pose.position.x
+        robot_y = self.robot_pose.position.y
+        quaternion = (
+            self.robot_pose.orientation.x,
+            self.robot_pose.orientation.y,
+            self.robot_pose.orientation.z,
+            self.robot_pose.orientation.w
+        )
+        _, _, robot_yaw = tf.transformations.euler_from_quaternion(quaternion)
+
+        # 벽 인식 로직 (여기서는 간단한 거리 기반 예제)
+        # 지도의 해상도와 원점 위치를 고려하여 로봇의 위치를 맵 좌표로 변환
+        map_resolution = self.map_data.info.resolution
+        map_origin_x = self.map_data.info.origin.position.x
+        map_origin_y = self.map_data.info.origin.position.y
+        map_width = self.map_data.info.width
+        map_height = self.map_data.info.height
+
+        robot_map_x = int((robot_x - map_origin_x) / map_resolution)
+        robot_map_y = int((robot_y - map_origin_y) / map_resolution)
+
+        # 주행 로직 (간단한 장애물 회피 예제)
+        speed = 0.2
+        steer = 0.0
+
+        if robot_map_x < 0 or robot_map_x >= map_width or robot_map_y < 0 or robot_map_y >= map_height:
+            rospy.logwarn("Robot is out of map bounds")
+            return
+
+        # 맵 데이터에서 로봇 주변의 장애물 탐지
+        neighborhood = self.map_data.data[robot_map_y * map_width + robot_map_x - 5: robot_map_y * map_width + robot_map_x + 5]
+
+        if any(cell > 50 for cell in neighborhood):  # 장애물이 근처에 있는 경우
+            speed = 0.0
+            steer = 1.0  # 오른쪽으로 회전 (예제)
+            rospy.loginfo('Obstacle detected, turning right')
+        else:
+            rospy.loginfo('No obstacles, driving forward')
+
+        self.cmd_msg.linear.x = speed
+        self.cmd_msg.angular.z = steer
+        self.pub.publish(self.cmd_msg)
+
+def main():
+    control = SLAMControl()
+    while not rospy.is_shutdown():
+        control.control()
+        control.rate.sleep()
+
+if __name__ == "__main__":
+    main()
