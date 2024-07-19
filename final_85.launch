@@ -8,5 +8,5 @@
     <!--node pkg="basic_ex" type="lane_detect_2.py" name="lane_detect" output="screen"/-->
     <node pkg="autonomous-driving_class" type="final_lane_detect_07.py" name="lane_detect" output="screen"/>
     <node pkg="autonomous-driving_class" type="lidar_sub.py" name="lidar_obs" output="screen"/>
-    <node pkg="autonomous-driving_class" type="control_SR_55.py" name="speed_obstacle" output="screen"/>
+    <node pkg="autonomous-driving_class" type="final_control_85.py" name="speed_obstacle" output="screen"/>
 </launch>
